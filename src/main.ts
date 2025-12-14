@@ -1,0 +1,21 @@
+import { createApp } from "vue";
+import PrimeVue from "primevue/config";
+import Card from 'primevue/card';
+import Button from 'primevue/button';
+import Tag from 'primevue/tag';
+import ProgressBar from 'primevue/progressbar';
+import MeterGroup from 'primevue/metergroup';
+import Knob from 'primevue/knob';
+import Chart from 'primevue/chart';
+import App from "./App.vue";
+
+const app = createApp(App);
+app.use(PrimeVue);
+app.component('Card', Card);
+app.component('Button', Button);
+app.component('Tag', Tag);
+app.component('ProgressBar', ProgressBar);
+app.component('MeterGroup', MeterGroup);
+app.component('Knob', Knob);
+app.component('Chart', Chart);
+app.mount("#app");
