@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import Card from 'primevue/card';
 import Button from 'primevue/button';
-import Tag from 'primevue/tag';
 import CpuMonitor from './components/CpuMonitor.vue';
 import MemoryMonitor from './components/MemoryMonitor.vue';
 import NetworkMonitor from './components/NetworkMonitor.vue';
@@ -71,27 +70,26 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-    <!-- 顶部标题栏 -->
-    <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex items-center justify-between h-16">
-          <div class="flex items-center gap-3">
-            <img src="/logo.svg" alt="Vitals" class="h-8 w-8" />
-            <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Vitals</h1>
-            <Tag severity="info" value="v0.1.0" />
+  <div class="min-h-screen bg-gray-100/80 dark:bg-gray-900/80 backdrop-blur-sm">
+    <!-- 紧凑的顶部栏 -->
+    <header class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50 sticky top-0 z-10">
+      <div class="max-w-6xl mx-auto px-3 py-2">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i class="pi pi-chart-line text-blue-500"></i>
+            <h1 class="text-base font-semibold text-gray-900 dark:text-white">Vitals</h1>
           </div>
 
-          <div class="flex items-center gap-4">
-            <div v-if="lastUpdate" class="text-sm text-gray-500 dark:text-gray-400">
-              最后更新: {{ lastUpdate.toLocaleTimeString() }}
+          <div class="flex items-center gap-2">
+            <div v-if="lastUpdate" class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+              {{ lastUpdate.toLocaleTimeString() }}
             </div>
             <Button
               :icon="isPolling ? 'pi pi-pause' : 'pi pi-play'"
-              :label="isPolling ? '暂停' : '开始'"
-              :severity="isPolling ? 'warning' : 'success'"
               @click="togglePolling"
               size="small"
+              text
+              severity="secondary"
             />
           </div>
         </div>
@@ -99,62 +97,37 @@ onUnmounted(() => {
     </header>
 
     <!-- 主内容区 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main class="max-w-6xl mx-auto p-3">
       <!-- 错误提示 -->
-      <div v-if="error" class="mb-6">
-        <Card class="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+      <div v-if="error" class="mb-3">
+        <Card class="border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-900/20 backdrop-blur-sm">
           <template #content>
-            <div class="flex items-center gap-2 text-red-700 dark:text-red-400">
-              <i class="pi pi-exclamation-triangle"></i>
-              <span>获取系统信息失败: {{ error }}</span>
+            <div class="flex items-center gap-2 text-red-700 dark:text-red-400 text-sm">
+              <i class="pi pi-exclamation-triangle text-sm"></i>
+              <span>{{ error }}</span>
             </div>
           </template>
         </Card>
       </div>
 
       <!-- 加载状态 -->
-      <div v-else-if="!systemStats" class="flex items-center justify-center h-64">
+      <div v-else-if="!systemStats" class="flex items-center justify-center h-32">
         <div class="text-center">
-          <i class="pi pi-spin pi-spinner text-4xl text-blue-500 mb-4"></i>
-          <p class="text-gray-600 dark:text-gray-400">正在加载系统信息...</p>
+          <i class="pi pi-spin pi-spinner text-2xl text-blue-500 mb-2"></i>
+          <p class="text-sm text-gray-600 dark:text-gray-400">加载中...</p>
         </div>
       </div>
 
-      <!-- 系统监控面板 -->
-      <div v-else class="space-y-6">
-        <!-- 监控网格 -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- CPU 监控 -->
-          <CpuMonitor :cpu="systemStats.cpu" />
+      <!-- 系统监控面板 - 紧凑布局 -->
+      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <!-- CPU 监控 -->
+        <CpuMonitor :cpu="systemStats.cpu" />
 
-          <!-- 内存监控 -->
-          <MemoryMonitor :memory="systemStats.memory" />
+        <!-- 内存监控 -->
+        <MemoryMonitor :memory="systemStats.memory" />
 
-          <!-- 网络监控 -->
-          <NetworkMonitor :network="systemStats.network" />
-        </div>
-
-        <!-- 底部信息 -->
-        <Card>
-          <template #content>
-            <div class="flex justify-between items-center text-sm text-gray-600 dark:text-gray-400">
-              <div class="flex items-center gap-2">
-                <i class="pi pi-info-circle"></i>
-                <span>系统信息实时更新</span>
-              </div>
-              <div class="flex items-center gap-4">
-                <span>更新间隔: 1秒</span>
-                <span>状态:
-                  <Tag
-                    :value="isPolling ? '运行中' : '已暂停'"
-                    :severity="isPolling ? 'success' : 'warning'"
-                    size="small"
-                  />
-                </span>
-              </div>
-            </div>
-          </template>
-        </Card>
+        <!-- 网络监控 -->
+        <NetworkMonitor :network="systemStats.network" />
       </div>
     </main>
   </div>
@@ -164,17 +137,26 @@ onUnmounted(() => {
 /* PrimeVue 图标 */
 @import 'primeicons/primeicons.css';
 
-/* PrimeVue 组件基础样式 */
+/* PrimeVue 组件基础样式 - 小组件风格 */
 .p-card {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  padding: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.p-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 .p-card-header {
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .p-progressbar {
@@ -313,10 +295,58 @@ onUnmounted(() => {
   animation: fadeIn 0.3s ease-out;
 }
 
-/* 卡片悬浮效果 */
-.p-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease-in-out;
+/* 暗色主题支持 */
+@media (prefers-color-scheme: dark) {
+  .p-card {
+    background: rgba(31, 41, 55, 0.85);
+    border-color: rgba(55, 65, 81, 0.5);
+  }
+
+  .p-progressbar {
+    background-color: #374151;
+  }
+
+  .p-tag.p-tag-info {
+    background-color: #1e3a8a;
+    color: #dbeafe;
+  }
+}
+
+/* 窗口拖动区域 */
+header {
+  -webkit-app-region: drag;
+}
+
+header button {
+  -webkit-app-region: no-drag;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
 }
 </style>

@@ -3,49 +3,43 @@
     <template #header>
       <div class="flex items-center gap-2">
         <i class="pi pi-microchip text-blue-500"></i>
-        <h3 class="text-lg font-semibold">CPU 监控</h3>
+        <h3 class="text-sm font-semibold">CPU</h3>
       </div>
     </template>
     <template #content>
-      <div class="space-y-6">
-        <!-- CPU信息概览 -->
-        <div class="flex justify-between items-center">
-          <span class="text-gray-600 text-sm">{{ cpu.name }}</span>
-          <Tag :value="`${cpu.cores} 核心`" severity="info" />
-        </div>
-
-        <!-- 总体CPU使用率 - 使用Knob组件 -->
-        <div class="flex justify-center">
-          <div class="text-center">
-            <Knob
-              :modelValue="Math.round(cpu.usage)"
-              :size="120"
-              :strokeWidth="10"
-              valueTemplate="{value}%"
-              :valueColor="getCpuColor(cpu.usage)"
-            />
-            <div class="mt-2 text-sm text-gray-600">
-              <span>总使用率</span>
-            </div>
+      <div class="space-y-3">
+        <!-- CPU 使用率 -->
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-xs text-gray-600">使用率</span>
+            <span class="text-xs font-medium">{{ Math.round(cpu.usage) }}%</span>
           </div>
+          <ProgressBar
+            :value="cpu.usage"
+            :showValue="false"
+            class="cpu-progress"
+            :style="`--progress-color: ${getCpuColor(cpu.usage)}`"
+          />
         </div>
 
         <!-- 频率信息 -->
-        <div class="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-          <div class="flex justify-between items-center">
-            <span class="text-sm text-gray-600">
-              <i class="pi pi-clock mr-2"></i>频率
-            </span>
-            <Tag :value="formatFrequency(cpu.frequency)" severity="secondary" />
-          </div>
+        <div class="flex justify-between items-center">
+          <span class="text-xs text-gray-600">频率</span>
+          <span class="text-xs font-medium">{{ formatFrequency(cpu.frequency) }}</span>
         </div>
 
+        <!-- 核心数 -->
+        <div class="flex justify-between items-center">
+          <span class="text-xs text-gray-600">核心</span>
+          <span class="text-xs font-medium">{{ cpu.cores }}核</span>
         </div>
+      </div>
     </template>
   </Card>
 </template>
 
 <script setup lang="ts">
+import ProgressBar from 'primevue/progressbar';
 import { formatFrequency } from '../utils/format';
 import type { CpuInfo } from '../types/system';
 
@@ -53,15 +47,11 @@ const props = defineProps<{
   cpu: CpuInfo;
 }>();
 
-function getCoreColor(usage: number): string {
+function getCpuColor(usage: number): string {
   if (usage < 50) return '#22c55e'; // green
   if (usage < 75) return '#eab308'; // yellow
   if (usage < 90) return '#f97316'; // orange
   return '#ef4444'; // red
-}
-
-function getCpuColor(usage: number): string {
-  return getCoreColor(usage);
 }
 </script>
 
@@ -73,20 +63,20 @@ function getCpuColor(usage: number): string {
 }
 
 .cpu-progress {
-  height: 0.5rem;
+  height: 6px;
+  background-color: #e5e7eb;
 }
 
-.core-item {
-  background-color: #f9fafb;
-  padding: 0.5rem;
-  border-radius: 0.375rem;
+.cpu-progress :deep(.p-progressbar-value) {
+  border-radius: 3px;
+  background-color: var(--progress-color) !important;
 }
 
 @media (prefers-color-scheme: dark) {
   .cpu-monitor {
     background-color: #1f2937;
   }
-  .core-item {
+  .cpu-progress {
     background-color: #374151;
   }
 }

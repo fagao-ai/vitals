@@ -3,25 +3,23 @@
     <template #header>
       <div class="flex items-center gap-2">
         <i class="pi pi-globe text-purple-500"></i>
-        <h3 class="text-lg font-semibold">网络监控</h3>
+        <h3 class="text-sm font-semibold">网络</h3>
       </div>
     </template>
     <template #content>
-      <div class="space-y-6">
+      <div class="space-y-3">
         <!-- 网络活动折线图 - 拆分为两个 -->
         <div>
-          <h4 class="text-sm font-medium text-gray-700 mb-3 flex items-center">
-            <i class="pi pi-chart-line mr-2"></i>实时速度趋势
-          </h4>
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 gap-3">
             <!-- 下载速度图表 -->
-            <div class="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-              <div class="text-center mb-2">
-                <span class="text-sm font-medium text-green-600 flex items-center justify-center">
-                  <i class="pi pi-download mr-1"></i>下载速度
+            <div class="bg-gray-50/80 dark:bg-gray-800/50 p-2 rounded-lg">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-medium text-green-600 flex items-center">
+                  <i class="pi pi-download mr-1"></i>下载
                 </span>
+                <span class="text-xs font-semibold text-green-600">{{ formatBytes(network.downloadSpeed) }}/s</span>
               </div>
-              <div class="h-32">
+              <div class="h-20">
                 <Chart
                   type="line"
                   :data="chartData.download"
@@ -29,19 +27,17 @@
                   class="w-full h-full"
                 />
               </div>
-              <div class="text-center mt-2">
-                <span class="text-xs font-semibold text-green-600">{{ formatBytes(network.downloadSpeed) }}/s</span>
-              </div>
             </div>
 
             <!-- 上传速度图表 -->
-            <div class="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-              <div class="text-center mb-2">
-                <span class="text-sm font-medium text-blue-600 flex items-center justify-center">
-                  <i class="pi pi-upload mr-1"></i>上传速度
+            <div class="bg-gray-50/80 dark:bg-gray-800/50 p-2 rounded-lg">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-medium text-blue-600 flex items-center">
+                  <i class="pi pi-upload mr-1"></i>上传
                 </span>
+                <span class="text-xs font-semibold text-blue-600">{{ formatBytes(network.uploadSpeed) }}/s</span>
               </div>
-              <div class="h-32">
+              <div class="h-20">
                 <Chart
                   type="line"
                   :data="chartData.upload"
@@ -49,49 +45,29 @@
                   class="w-full h-full"
                 />
               </div>
-              <div class="text-center mt-2">
-                <span class="text-xs font-semibold text-blue-600">{{ formatBytes(network.uploadSpeed) }}/s</span>
-              </div>
             </div>
           </div>
         </div>
 
         <!-- 总传输量统计 -->
-        <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-          <h4 class="text-sm font-medium text-gray-700 mb-3 flex items-center">
-            <i class="pi pi-chart-bar mr-2"></i>总传输量
-          </h4>
-          <div class="grid grid-cols-3 gap-3 text-center">
-            <div class="bg-white dark:bg-gray-800 p-3 rounded-lg">
-              <div class="text-xs text-gray-600 mb-1 flex items-center justify-center">
-                <i class="pi pi-download mr-1 text-green-500"></i>下载
-              </div>
-              <Tag
-                :value="formatBytes(network.totalDownload)"
-                severity="success"
-                class="w-full"
-              />
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-gray-50/80 dark:bg-gray-800/50 p-2 rounded">
+            <div class="text-xs text-gray-600 flex items-center justify-center mb-1">
+              <i class="pi pi-download mr-1 text-green-500"></i>
             </div>
-            <div class="bg-white dark:bg-gray-800 p-3 rounded-lg">
-              <div class="text-xs text-gray-600 mb-1 flex items-center justify-center">
-                <i class="pi pi-upload mr-1 text-blue-500"></i>上传
-              </div>
-              <Tag
-                :value="formatBytes(network.totalUpload)"
-                severity="info"
-                class="w-full"
-              />
+            <span class="text-xs font-medium">{{ formatBytes(network.totalDownload) }}</span>
+          </div>
+          <div class="bg-gray-50/80 dark:bg-gray-800/50 p-2 rounded">
+            <div class="text-xs text-gray-600 flex items-center justify-center mb-1">
+              <i class="pi pi-upload mr-1 text-blue-500"></i>
             </div>
-            <div class="bg-white dark:bg-gray-800 p-3 rounded-lg">
-              <div class="text-xs text-gray-600 mb-1 flex items-center justify-center">
-                <i class="pi pi-sync mr-1 text-purple-500"></i>总计
-              </div>
-              <Tag
-                :value="formatBytes(network.totalDownload + network.totalUpload)"
-                severity="warning"
-                class="w-full"
-              />
+            <span class="text-xs font-medium">{{ formatBytes(network.totalUpload) }}</span>
+          </div>
+          <div class="bg-gray-50/80 dark:bg-gray-800/50 p-2 rounded">
+            <div class="text-xs text-gray-600 flex items-center justify-center mb-1">
+              <i class="pi pi-sync mr-1 text-purple-500"></i>
             </div>
+            <span class="text-xs font-medium">{{ formatBytes(network.totalDownload + network.totalUpload) }}</span>
           </div>
         </div>
       </div>
@@ -102,7 +78,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Card from 'primevue/card';
-import Tag from 'primevue/tag';
 import Chart from 'primevue/chart';
 import { formatBytes } from '../utils/format';
 import type { NetworkInfo } from '../types/system';
