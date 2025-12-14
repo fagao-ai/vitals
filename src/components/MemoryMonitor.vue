@@ -80,7 +80,7 @@
               <span>{{ formatBytes(memory.swapUsed) }}</span>
             </div>
             <ProgressBar
-              :value="(memory.swapUsed / memory.swapTotal) * 100"
+              :value="(memory.swapUsed ?? 0 / memory.swapTotal) * 100"
               :showValue="false"
               class="swap-progress h-1"
             />
