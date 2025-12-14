@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "vitals",
+  "productName": "Vitals",
   "version": "0.1.0",
   "identifier": "com.sube.vitals",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "vitals",
+        "title": "Vitals",
         "width": 800,
         "height": 600
       }

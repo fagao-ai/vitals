@@ -76,7 +76,7 @@ onUnmounted(() => {
       <div class="max-w-6xl mx-auto px-3 py-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <i class="pi pi-chart-line text-blue-500"></i>
+            <img src="/logo.svg" alt="Vitals" class="h-5 w-5" />
             <h1 class="text-base font-semibold text-gray-900 dark:text-white">Vitals</h1>
           </div>
 
