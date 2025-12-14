@@ -11,7 +11,7 @@
         <!-- 内存使用率 -->
         <div>
           <div class="flex justify-between items-center mb-1">
-            <span class="text-xs text-gray-600">使用率</span>
+            <span class="text-xs" style="color: rgba(156, 163, 175, 1.0)">使用率</span>
             <span class="text-xs font-medium">{{ Math.round(memory.usagePercent) }}%</span>
           </div>
           <ProgressBar
@@ -24,26 +24,26 @@
 
         <!-- 已用内存 -->
         <div class="flex justify-between items-center">
-          <span class="text-xs text-gray-600">已用</span>
+          <span class="text-xs" style="color: rgba(156, 163, 175, 1.0)">已用</span>
           <span class="text-xs font-medium">{{ formatBytes(memory.used) }}</span>
         </div>
 
         <!-- 可用内存 -->
         <div class="flex justify-between items-center">
-          <span class="text-xs text-gray-600">可用</span>
+          <span class="text-xs" style="color: rgba(156, 163, 175, 1.0)">可用</span>
           <span class="text-xs font-medium text-green-600">{{ formatBytes(memory.available) }}</span>
         </div>
 
         <!-- 总内存 -->
         <div class="flex justify-between items-center">
-          <span class="text-xs text-gray-600">总计</span>
+          <span class="text-xs" style="color: rgba(156, 163, 175, 1.0)">总计</span>
           <span class="text-xs font-medium">{{ formatBytes(memory.total) }}</span>
         </div>
 
         <!-- 交换分区 -->
         <div v-if="memory.swapTotal && memory.swapTotal > 0" class="pt-2 border-t border-gray-200 dark:border-gray-700">
           <div class="flex justify-between items-center mb-1">
-            <span class="text-xs text-gray-600">Swap</span>
+            <span class="text-xs" style="color: rgba(156, 163, 175, 1.0)">Swap</span>
             <span class="text-xs font-medium">{{ Math.round(((memory.swapUsed ?? 0) / memory.swapTotal) * 100) }}%</span>
           </div>
           <ProgressBar
@@ -77,7 +77,9 @@ function getMemoryColor(usage: number): string {
 
 <style scoped>
 .memory-monitor {
-  background-color: white;
+  background-color: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-radius: 0.5rem;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
 }
@@ -104,7 +106,7 @@ function getMemoryColor(usage: number): string {
 
 @media (prefers-color-scheme: dark) {
   .memory-monitor {
-    background-color: #1f2937;
+    background-color: rgba(31, 41, 55, 0.75);
   }
   .memory-progress,
   .swap-progress {

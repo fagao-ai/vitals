@@ -12,6 +12,7 @@ import type { SystemStats } from './types/system';
 const systemStats = ref<SystemStats | null>(null);
 const lastUpdate = ref<Date>(new Date());
 const isPolling = ref(false);
+const isPinned = ref(false);
 const error = ref<string | null>(null);
 let pollingInterval: number | null = null;
 
@@ -58,32 +59,91 @@ function stopPolling() {
   isPolling.value = false;
 }
 
-// 组件挂载时开始轮询
-onMounted(() => {
-  startPolling();
-});
+// 切换窗口置顶
+async function togglePin() {
+  try {
+    const newState = !isPinned.value;
+    await invoke('set_pin_on_top', { pinned: newState });
+    isPinned.value = newState;
+  } catch (err) {
+    console.error('Failed to toggle pin:', err);
+  }
+}
 
-// 组件卸载时停止轮询
-onUnmounted(() => {
-  stopPolling();
+// 组件挂载时开始轮询
+onMounted(async () => {
+  startPolling();
+  // 初始化时默认设置为桌面模式（可拖动）
+  try {
+    await invoke('set_pin_on_top', { pinned: false });
+    isPinned.value = false;
+    // 设置初始状态为可拖动
+    (document.documentElement.style as any).webkitAppRegion = 'drag';
+  } catch (err) {
+    console.error('Failed to initialize pin state:', err);
+  }
+
+  // 添加键盘快捷键
+  const handleKeydown = (e: KeyboardEvent) => {
+    // Cmd+Q 退出应用
+    if (e.metaKey && e.key === 'q') {
+      e.preventDefault();
+      invoke('close_app');
+    }
+    // Cmd+P 切换置顶
+    if (e.metaKey && e.key === 'p') {
+      e.preventDefault();
+      togglePin();
+    }
+    // Cmd+R 切换监控
+    if (e.metaKey && e.key === 'r') {
+      e.preventDefault();
+      togglePolling();
+    }
+    // F12 或 Cmd+Option+I 打开/关闭开发者工具
+    if (e.key === 'F12' || (e.metaKey && e.altKey && e.key === 'i')) {
+      e.preventDefault();
+      // 这里可以添加切换开发者工具的逻辑
+    }
+  };
+
+  window.addEventListener('keydown', handleKeydown);
+
+  // 组件卸载时移除事件监听
+  onUnmounted(() => {
+    window.removeEventListener('keydown', handleKeydown);
+    stopPolling();
+  });
 });
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-100/80 dark:bg-gray-900/80 backdrop-blur-sm">
+  <div
+    class="widget-container"
+    @contextmenu.prevent
+  >
     <!-- 紧凑的顶部栏 -->
-    <header class="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50 sticky top-0 z-10">
+    <header class="bg-white/50 dark:bg-gray-800/60 backdrop-blur-xl border-b border-gray-200/30 dark:border-gray-700/30 sticky top-0 z-10">
       <div class="max-w-6xl mx-auto px-3 py-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <img src="/logo.svg" alt="Vitals" class="h-5 w-5" />
             <h1 class="text-base font-semibold text-gray-900 dark:text-white">Vitals</h1>
+            <span class="text-xs text-gray-500 hidden md:inline">Cmd+P:置顶 Cmd+R:暂停 Cmd+Q:退出</span>
           </div>
 
           <div class="flex items-center gap-2">
             <div v-if="lastUpdate" class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
               {{ lastUpdate.toLocaleTimeString() }}
             </div>
+            <Button
+              :icon="isPinned ? 'pi pi-thumbtack-fill' : 'pi pi-thumbtack'"
+              @click="togglePin"
+              size="small"
+              text
+              :severity="isPinned ? 'primary' : 'secondary'"
+              :title="isPinned ? '取消置顶' : '置顶到桌面'"
+            />
             <Button
               :icon="isPolling ? 'pi pi-pause' : 'pi pi-play'"
               @click="togglePolling"
@@ -118,8 +178,8 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 系统监控面板 - 紧凑布局 -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <!-- 系统监控面板 - 垂直布局 -->
+      <div v-else class="flex flex-col gap-3">
         <!-- CPU 监控 -->
         <CpuMonitor :cpu="systemStats.cpu" />
 
@@ -139,8 +199,9 @@ onUnmounted(() => {
 
 /* PrimeVue 组件基础样式 - 小组件风格 */
 .p-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 0.75rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
@@ -298,8 +359,8 @@ onUnmounted(() => {
 /* 暗色主题支持 */
 @media (prefers-color-scheme: dark) {
   .p-card {
-    background: rgba(31, 41, 55, 0.85);
-    border-color: rgba(55, 65, 81, 0.5);
+    background: rgba(31, 41, 55, 0.75);
+    border-color: rgba(55, 65, 81, 0.4);
   }
 
   .p-progressbar {
@@ -312,13 +373,26 @@ onUnmounted(() => {
   }
 }
 
-/* 窗口拖动区域 */
-header {
-  -webkit-app-region: drag;
-}
-
+/* 窗口拖动区域 - 通过 JavaScript 控制 */
 header button {
   -webkit-app-region: no-drag;
+}
+
+/* 主容器样式 */
+:root {
+  -webkit-app-region: no-drag;
+}
+
+/* 主容器背景透明 */
+body {
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+/* HTML 背景透明 */
+html {
+  background: transparent;
 }
 
 /* 滚动条美化 */

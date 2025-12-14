@@ -1,0 +1,23 @@
+/* 桌面小组件样式 */
+html, body {
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+#app {
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
+}
+
+/* 确保主容器透明 */
+.widget-container {
+  background: transparent !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  min-height: 100vh !important;
+}

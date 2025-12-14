@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
-use sysinfo::{System, Networks};
-use tauri::State;
+use sysinfo::{Networks, System};
+use tauri::{Manager, State, WebviewWindow};
 
 // System data structures
 #[derive(Serialize, Clone)]
@@ -78,7 +78,7 @@ impl Default for AppState {
         for (interface_name, data) in &networks {
             last_network_stats.insert(
                 interface_name.clone(),
-                (data.total_received(), data.total_transmitted())
+                (data.total_received(), data.total_transmitted()),
             );
         }
 
@@ -110,7 +110,11 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
         cores: cpu_count,
         usage: cpu_usage,
         core_usage,
-        frequency: system.cpus().first().map(|cpu| cpu.frequency() as f64 / 1000.0).unwrap_or(0.0), // Convert MHz to GHz
+        frequency: system
+            .cpus()
+            .first()
+            .map(|cpu| cpu.frequency() as f64 / 1000.0)
+            .unwrap_or(0.0), // Convert MHz to GHz
         temperature: None, // Temperature monitoring not implemented yet
     };
 
@@ -124,7 +128,11 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
         total: total_memory,
         used: used_memory,
         available: available_memory,
-        usage_percent: if total_memory > 0 { (used_memory as f32 / total_memory as f32) * 100.0 } else { 0.0 },
+        usage_percent: if total_memory > 0 {
+            (used_memory as f32 / total_memory as f32) * 100.0
+        } else {
+            0.0
+        },
         swap_total: system.total_swap(),
         swap_used: system.used_swap(),
     };
@@ -138,16 +146,17 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
         let current_received = data.total_received();
         let current_transmitted = data.total_transmitted();
 
-        let (last_received, last_transmitted) = last_stats
-            .get(interface_name)
-            .copied()
-            .unwrap_or((0, 0));
+        let (last_received, last_transmitted) =
+            last_stats.get(interface_name).copied().unwrap_or((0, 0));
 
         let download_speed = current_received.saturating_sub(last_received);
         let upload_speed = current_transmitted.saturating_sub(last_transmitted);
 
         // Update last stats for next calculation
-        last_stats.insert(interface_name.clone(), (current_received, current_transmitted));
+        last_stats.insert(
+            interface_name.clone(),
+            (current_received, current_transmitted),
+        );
 
         interfaces.push(NetworkInterface {
             name: interface_name.clone(),
@@ -193,12 +202,53 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[tauri::command]
+async fn set_pin_on_top(window: WebviewWindow, pinned: bool) -> Result<(), String> {
+    window
+        .set_always_on_top(pinned)
+        .map_err(|e| e.to_string())?;
+
+    // 根据置顶状态设置拖动区域
+    // 当不置顶时，可以拖动窗口；置顶时，禁用拖动
+    #[cfg(target_os = "macos")]
+    {
+        let js_code = if pinned {
+            // 置顶时禁用拖动
+            "document.documentElement.style.webkitAppRegion = 'no-drag';"
+        } else {
+            // 不置顶时启用拖动
+            "document.documentElement.style.webkitAppRegion = 'drag';"
+        };
+        window.eval(js_code).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_app() -> Result<(), String> {
+    std::process::exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![get_system_stats, greet])
+        .invoke_handler(tauri::generate_handler![
+            get_system_stats,
+            greet,
+            set_pin_on_top,
+            close_app
+        ])
+        .setup(|app| {
+            #[cfg(debug_assertions)]
+            {
+                let window = app.get_webview_window("main").unwrap();
+                window.open_devtools();
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

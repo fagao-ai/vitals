@@ -8,6 +8,7 @@ import MeterGroup from 'primevue/metergroup';
 import Knob from 'primevue/knob';
 import Chart from 'primevue/chart';
 import App from "./App.vue";
+import './assets/widget.css';
 
 const app = createApp(App);
 app.use(PrimeVue);
