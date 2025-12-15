@@ -172,9 +172,9 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
     }
 
     // Debug output for network
-    println!("Total download speed: {} bytes/s", total_download);
-    println!("Total upload speed: {} bytes/s", total_upload);
-    println!("Number of interfaces: {}", interfaces.len());
+    // println!("Total download speed: {} bytes/s", total_download);
+    // println!("Total upload speed: {} bytes/s", total_upload);
+    // println!("Number of interfaces: {}", interfaces.len());
 
     let network_info = NetworkInfo {
         interfaces,

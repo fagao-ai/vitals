@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import Card from 'primevue/card';
 import Button from 'primevue/button';
 import CpuMonitor from './components/CpuMonitor.vue';
@@ -21,7 +22,7 @@ async function fetchSystemStats() {
   try {
     error.value = null;
     const stats = await invoke<SystemStats>('get_system_stats');
-    console.log('Received system stats:', stats); // 调试日志
+    // console.log('Received system stats:', stats); // 调试日志
     systemStats.value = stats;
     lastUpdate.value = new Date();
   } catch (err) {
@@ -70,6 +71,32 @@ async function togglePin() {
   }
 }
 
+// 添加键盘快捷键
+const handleKeydown = (e: KeyboardEvent) => {
+  // Cmd+Q 退出应用
+  if (e.metaKey && e.key === 'q') {
+    e.preventDefault();
+    invoke('close_app');
+  }
+  // Cmd+P 切换置顶
+  if (e.metaKey && e.key === 'p') {
+    e.preventDefault();
+    togglePin();
+  }
+  // Cmd+R 切换监控
+  if (e.metaKey && e.key === 'r') {
+    e.preventDefault();
+    togglePolling();
+  }
+  // F12 或 Cmd+Option+I 打开/关闭开发者工具
+  if (e.key === 'F12' || (e.metaKey && e.altKey && e.key === 'i')) {
+    e.preventDefault();
+    // 这里可以添加切换开发者工具的逻辑
+  }
+};
+
+let dragEvent: ((e: MouseEvent) => void) | undefined
+
 // 组件挂载时开始轮询
 onMounted(async () => {
   startPolling();
@@ -78,42 +105,33 @@ onMounted(async () => {
     await invoke('set_pin_on_top', { pinned: false });
     isPinned.value = false;
     // 设置初始状态为可拖动
-    (document.documentElement.style as any).webkitAppRegion = 'drag';
+    // (document.documentElement.style as any).webkitAppRegion = 'drag';
   } catch (err) {
     console.error('Failed to initialize pin state:', err);
   }
 
-  // 添加键盘快捷键
-  const handleKeydown = (e: KeyboardEvent) => {
-    // Cmd+Q 退出应用
-    if (e.metaKey && e.key === 'q') {
-      e.preventDefault();
-      invoke('close_app');
-    }
-    // Cmd+P 切换置顶
-    if (e.metaKey && e.key === 'p') {
-      e.preventDefault();
-      togglePin();
-    }
-    // Cmd+R 切换监控
-    if (e.metaKey && e.key === 'r') {
-      e.preventDefault();
-      togglePolling();
-    }
-    // F12 或 Cmd+Option+I 打开/关闭开发者工具
-    if (e.key === 'F12' || (e.metaKey && e.altKey && e.key === 'i')) {
-      e.preventDefault();
-      // 这里可以添加切换开发者工具的逻辑
-    }
-  };
+
 
   window.addEventListener('keydown', handleKeydown);
 
-  // 组件卸载时移除事件监听
-  onUnmounted(() => {
-    window.removeEventListener('keydown', handleKeydown);
-    stopPolling();
-  });
+  const appWindow = getCurrentWindow()
+  dragEvent = (e: MouseEvent) => {
+    if (!isPinned.value && e.buttons === 1) {
+      // Primary (left) button
+      e.detail === 2
+        ? appWindow.toggleMaximize() // Maximize on double click
+        : appWindow.startDragging(); // Else start dragging
+    }
+  }
+
+  document.getElementById('dragArea')!.addEventListener('mousedown', dragEvent);
+});
+
+// 组件卸载时移除事件监听
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown);
+  Boolean(dragEvent) && window.removeEventListener('mousedown', dragEvent as any);
+  stopPolling();
 });
 </script>
 
@@ -123,17 +141,28 @@ onMounted(async () => {
     @contextmenu.prevent
   >
     <!-- 紧凑的顶部栏 -->
-    <header class="bg-white/50 dark:bg-gray-800/60 backdrop-blur-xl border-b border-gray-200/30 dark:border-gray-700/30 sticky top-0 z-10">
+    <header
+      id="dragArea"
+      data-tauri-drag-region
+      class="bg-white/50 dark:bg-gray-800/60 backdrop-blur-xl border-b border-gray-200/30 dark:border-gray-700/30 sticky top-0 z-10"
+    >
       <div class="max-w-6xl mx-auto px-3 py-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <img src="/logo.svg" alt="Vitals" class="h-5 w-5" />
+            <img
+              src="/logo.svg"
+              alt="Vitals"
+              class="h-5 w-5"
+            />
             <h1 class="text-base font-semibold text-gray-900 dark:text-white">Vitals</h1>
             <span class="text-xs text-gray-500 hidden md:inline">Cmd+P:置顶 Cmd+R:暂停 Cmd+Q:退出</span>
           </div>
 
           <div class="flex items-center gap-2">
-            <div v-if="lastUpdate" class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+            <div
+              v-if="lastUpdate"
+              class="text-xs text-gray-500 dark:text-gray-400 hidden sm:block"
+            >
               {{ lastUpdate.toLocaleTimeString() }}
             </div>
             <Button
@@ -159,7 +188,10 @@ onMounted(async () => {
     <!-- 主内容区 -->
     <main class="max-w-6xl mx-auto p-3">
       <!-- 错误提示 -->
-      <div v-if="error" class="mb-3">
+      <div
+        v-if="error"
+        class="mb-3"
+      >
         <Card class="border-red-200 dark:border-red-800 bg-red-50/80 dark:bg-red-900/20 backdrop-blur-sm">
           <template #content>
             <div class="flex items-center gap-2 text-red-700 dark:text-red-400 text-sm">
@@ -171,7 +203,10 @@ onMounted(async () => {
       </div>
 
       <!-- 加载状态 -->
-      <div v-else-if="!systemStats" class="flex items-center justify-center h-32">
+      <div
+        v-else-if="!systemStats"
+        class="flex items-center justify-center h-32"
+      >
         <div class="text-center">
           <i class="pi pi-spin pi-spinner text-2xl text-blue-500 mb-2"></i>
           <p class="text-sm text-gray-600 dark:text-gray-400">加载中...</p>
@@ -179,7 +214,10 @@ onMounted(async () => {
       </div>
 
       <!-- 系统监控面板 - 垂直布局 -->
-      <div v-else class="flex flex-col gap-3">
+      <div
+        v-else
+        class="flex flex-col gap-3"
+      >
         <!-- CPU 监控 -->
         <CpuMonitor :cpu="systemStats.cpu" />
 
@@ -346,6 +384,7 @@ onMounted(async () => {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
