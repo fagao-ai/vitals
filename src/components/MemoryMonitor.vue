@@ -63,7 +63,7 @@ import ProgressBar from 'primevue/progressbar';
 import { formatBytes } from '../utils/format';
 import type { MemoryInfo } from '../types/system';
 
-const props = defineProps<{
+const { memory } = defineProps<{
   memory: MemoryInfo;
 }>();
 

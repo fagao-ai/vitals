@@ -8,6 +8,36 @@
     </template>
     <template #content>
       <div class="space-y-3">
+        <!-- 网络接口信息 - 只显示有 IP 地址的接口 -->
+        <div class="space-y-2" v-if="network.interfaces.filter(iface => iface.ipAddress).length > 0">
+          <div
+            v-for="netInterface in network.interfaces.filter(iface => iface.ipAddress)"
+            :key="netInterface.name"
+            class="bg-gray-50/80 dark:bg-gray-800/50 p-3 rounded-lg"
+            :class="{ 'opacity-60': !netInterface.isUp }"
+          >
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <i
+                  class="text-xs"
+                  :class="[
+                    netInterface.isUp ? 'pi-circle-fill text-green-500' : 'pi-circle text-gray-400'
+                  ]"
+                ></i>
+                <span class="text-sm font-medium">{{ netInterface.displayName }}</span>
+                <Tag
+                  :value="netInterface.ipAddress"
+                  severity="secondary"
+                  class="text-xs"
+                />
+              </div>
+            </div>
+            <div class="text-xs text-gray-600 dark:text-gray-400">
+              {{ netInterface.name }}
+            </div>
+          </div>
+        </div>
+
         <!-- 网络活动折线图 -->
         <div>
           <div class="grid grid-cols-1 gap-3">
@@ -79,6 +109,7 @@
 import { shallowRef, watch } from 'vue'; // 引入 shallowRef
 import Card from 'primevue/card';
 import Chart from 'primevue/chart';
+import Tag from 'primevue/tag';
 import { formatBytes } from '../utils/format';
 import type { NetworkInfo } from '../types/system';
 

@@ -43,7 +43,7 @@ import ProgressBar from 'primevue/progressbar';
 import { formatFrequency } from '../utils/format';
 import type { CpuInfo } from '../types/system';
 
-const props = defineProps<{
+const { cpu } = defineProps<{
   cpu: CpuInfo;
 }>();
 

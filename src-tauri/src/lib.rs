@@ -1,7 +1,9 @@
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
+use std::process::Command;
 use sysinfo::{Networks, System};
 use tauri::{Manager, State, WebviewWindow};
+use local_ip_address::list_afinet_netifas;
 
 // System data structures
 #[derive(Serialize, Clone)]
@@ -29,6 +31,10 @@ pub struct MemoryInfo {
 #[derive(Serialize, Clone)]
 pub struct NetworkInterface {
     name: String,
+    #[serde(rename = "displayName")]
+    display_name: String,
+    #[serde(rename = "ipAddress")]
+    ip_address: Option<String>,
     #[serde(rename = "isUp")]
     is_up: bool,
     download_speed: u64,
@@ -65,6 +71,167 @@ pub struct AppState {
     system: Arc<Mutex<System>>,
     networks: Arc<Mutex<Networks>>,
     last_network_stats: Arc<Mutex<std::collections::HashMap<String, (u64, u64)>>>,
+}
+
+// 判断是否是物理网络接口（过滤掉虚拟网卡）
+fn is_physical_interface(interface_name: &str) -> bool {
+    let name_lower = interface_name.to_lowercase();
+
+    // macOS 物理网络接口
+    if name_lower.starts_with("en") && name_lower.len() >= 3 {
+        // 检查是否是数字结尾的接口（en0, en1, etc.）
+        let chars: Vec<char> = name_lower.chars().collect();
+        if chars.len() >= 3 && chars[2].is_ascii_digit() {
+            // 排除特定的虚拟接口
+            if name_lower.contains("bridge") || name_lower.contains("virtual") || name_lower.contains("utun") {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    // Linux 物理以太网接口
+    if name_lower.starts_with("eth") && name_lower.len() >= 4 {
+        let chars: Vec<char> = name_lower.chars().collect();
+        if chars[3].is_ascii_digit() {
+            return true;
+        }
+    }
+
+    // Linux 物理 Wi-Fi 接口
+    if name_lower.starts_with("wlan") && name_lower.len() >= 5 {
+        let chars: Vec<char> = name_lower.chars().collect();
+        if chars[4].is_ascii_digit() {
+            return true;
+        }
+    }
+
+    // Linux 新的命名规范（预测性接口名称）
+    if (name_lower.starts_with("enp") || name_lower.starts_with("ens") ||
+        name_lower.starts_with("eno") || name_lower.starts_with("enx")) &&
+       name_lower.len() >= 4 {
+        // 确保后面跟着数字
+        let chars: Vec<char> = name_lower.chars().collect();
+        if chars[3].is_ascii_digit() {
+            return true;
+        }
+    }
+
+    if name_lower.starts_with("wlp") && name_lower.len() >= 4 {
+        let chars: Vec<char> = name_lower.chars().collect();
+        if chars[3].is_ascii_digit() {
+            return true;
+        }
+    }
+
+    // 明确的接口名称
+    if name_lower == "wi-fi" || name_lower == "wifi" || name_lower == "ethernet" {
+        return true;
+    }
+
+    // 默认情况下，不识别的接口都过滤掉
+    false
+}
+
+// 获取 Wi-Fi SSID（跨平台）
+fn get_wifi_ssid() -> Option<String> {
+
+    // 使用系统命令获取 Wi-Fi SSID
+    #[cfg(target_os = "macos")]
+    {
+        // macOS 使用 networksetup 命令
+        if let Ok(output) = Command::new("networksetup")
+            .arg("-getairportnetwork")
+            .arg("en0")
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                if let Some(line) = output_str.lines().next() {
+                    if let Some(ssid) = line.split("Current Wi-Fi Network: ").nth(1) {
+                        return Some(ssid.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 使用 netsh 命令
+        if let Ok(output) = Command::new("netsh")
+            .args(&["wlan", "show", "interfaces"])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                for line in output_str.lines() {
+                    if line.trim().starts_with("SSID") && line.contains(":") {
+                        if let Some(ssid) = line.split(":").nth(1) {
+                            let ssid = ssid.trim();
+                            if !ssid.is_empty() {
+                                return Some(ssid.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux 使用 nmcli 或 iwgetid
+        if let Ok(output) = Command::new("nmcli")
+            .args(&["-t", "-f", "active", "ssid", "dev", "wifi"])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let ssid = output_str.trim();
+                if !ssid.is_empty() {
+                    return Some(ssid.to_string());
+                }
+            }
+        }
+
+        // 备选方案：使用 iwgetid
+        if let Ok(output) = Command::new("iwgetid")
+            .arg("-r")
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let ssid = output_str.trim();
+                if !ssid.is_empty() && ssid != "any" {
+                    return Some(ssid.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+// 获取网络接口的显示名称
+fn get_display_name(interface_name: &str) -> String {
+    let name_lower = interface_name.to_lowercase();
+
+    // macOS 上 en0 通常是 Wi-Fi，en1 等通常是有线网
+    if name_lower == "en0" {
+        // 尝试获取 Wi-Fi SSID
+        if let Some(ssid) = get_wifi_ssid() {
+            ssid
+        } else {
+            "Wi-Fi".to_string()
+        }
+    } else if name_lower.contains("wi-fi") || name_lower.contains("wifi") || name_lower.contains("wlan") {
+        "Wi-Fi".to_string()
+    } else if name_lower.starts_with("en1") || name_lower.starts_with("en2") ||
+              name_lower.starts_with("en3") || name_lower.starts_with("en4") ||
+              name_lower.starts_with("en5") || name_lower.contains("eth") {
+        "以太网".to_string()
+    } else if name_lower.contains("thunderbolt") {
+        "Thunderbolt".to_string()
+    } else {
+        interface_name.to_string()
+    }
 }
 
 impl Default for AppState {
@@ -142,7 +309,27 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
     let mut total_download = 0u64;
     let mut total_upload = 0u64;
 
+    // 获取所有网络接口的 IP 地址
+    let network_interfaces = list_afinet_netifas().unwrap_or_else(|_| Vec::new());
+    let mut ip_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for (name, ip) in network_interfaces {
+        // 只记录 IPv4 地址，并且不是本地环回地址
+        if ip.is_ipv4() && !ip.is_loopback() {
+            let ip_str = ip.to_string();
+            // 过滤掉本地链路地址
+            if !ip_str.starts_with("169.254.") && !ip_str.starts_with("fe80") {
+                ip_map.insert(name.clone(), ip_str);
+            }
+        }
+    }
+
     for (interface_name, data) in networks.iter() {
+        // 过滤虚拟网卡 - 只保留物理网络接口
+        if !is_physical_interface(interface_name) {
+            continue;
+        }
+
         let current_received = data.total_received();
         let current_transmitted = data.total_transmitted();
 
@@ -158,8 +345,13 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
             (current_received, current_transmitted),
         );
 
+        // 获取 IP 地址
+        let ip_address = ip_map.get(interface_name).cloned();
+
         interfaces.push(NetworkInterface {
             name: interface_name.clone(),
+            display_name: get_display_name(interface_name),
+            ip_address,
             is_up: current_received > 0 || current_transmitted > 0,
             download_speed,
             upload_speed,
@@ -171,10 +363,13 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
         total_upload += upload_speed;
     }
 
-    // Debug output for network
+    // Debug output for network (commented out)
     // println!("Total download speed: {} bytes/s", total_download);
     // println!("Total upload speed: {} bytes/s", total_upload);
     // println!("Number of interfaces: {}", interfaces.len());
+    // for iface in &interfaces {
+    //     println!("Interface: {} -> {}", iface.name, iface.display_name);
+    // }
 
     let network_info = NetworkInfo {
         interfaces,

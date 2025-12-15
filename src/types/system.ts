@@ -28,6 +28,8 @@ export interface NetworkInfo {
 
 export interface NetworkInterface {
   name: string;
+  displayName: string; // 显示名称（如 Wi-Fi、以太网）
+  ipAddress?: string; // IP 地址
   isUp: boolean;
   downloadSpeed: number;
   uploadSpeed: number;

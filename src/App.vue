@@ -138,6 +138,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="widget-container"
+    style="height: 100vh; overflow-y: auto;"
     @contextmenu.prevent
   >
     <!-- 紧凑的顶部栏 -->
