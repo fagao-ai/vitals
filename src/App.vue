@@ -48,8 +48,8 @@ function startPolling() {
   isPolling.value = true;
   fetchSystemStats(); // 立即获取一次
 
-  // 每秒更新一次
-  pollingInterval = setInterval(fetchSystemStats, 1000) as unknown as number;
+  // 每 500ms 更新一次，提高网速检测的实时性
+  pollingInterval = setInterval(fetchSystemStats, 500) as unknown as number;
 }
 
 function stopPolling() {

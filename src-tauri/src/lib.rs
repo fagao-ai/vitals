@@ -70,7 +70,10 @@ pub struct SystemStats {
 pub struct AppState {
     system: Arc<Mutex<System>>,
     networks: Arc<Mutex<Networks>>,
-    last_network_stats: Arc<Mutex<std::collections::HashMap<String, (u64, u64)>>>,
+    // 存储上次网络统计数据：(接收字节数, 发送字节数, 时间戳)
+    last_network_stats: Arc<Mutex<std::collections::HashMap<String, (u64, u64, f64)>>>,
+    // 网速平滑值（用于指数移动平均）
+    network_speed_history: Arc<Mutex<std::collections::HashMap<String, Vec<(u64, u64)>>>>,
 }
 
 // 判断是否是物理网络接口（过滤掉虚拟网卡）
@@ -241,18 +244,28 @@ impl Default for AppState {
 
         let networks = Networks::new_with_refreshed_list();
 
+        // 获取当前时间作为初始时间戳
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
         let mut last_network_stats = std::collections::HashMap::new();
         for (interface_name, data) in &networks {
             last_network_stats.insert(
                 interface_name.clone(),
-                (data.total_received(), data.total_transmitted()),
+                (data.total_received(), data.total_transmitted(), current_time),
             );
         }
+
+        // 初始化空的网速历史记录
+        let network_speed_history = std::collections::HashMap::new();
 
         Self {
             system: Arc::new(Mutex::new(system)),
             networks: Arc::new(Mutex::new(networks)),
             last_network_stats: Arc::new(Mutex::new(last_network_stats)),
+            network_speed_history: Arc::new(Mutex::new(network_speed_history)),
         }
     }
 }
@@ -262,6 +275,7 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
     let mut system = state.system.lock().map_err(|e| e.to_string())?;
     let mut networks = state.networks.lock().map_err(|e| e.to_string())?;
     let mut last_stats = state.last_network_stats.lock().map_err(|e| e.to_string())?;
+    let mut speed_history = state.network_speed_history.lock().map_err(|e| e.to_string())?;
 
     // Refresh system information
     system.refresh_all();
@@ -306,8 +320,10 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
 
     // Network Information
     let mut interfaces = Vec::new();
-    let mut total_download = 0u64;
-    let mut total_upload = 0u64;
+    let mut total_speed_download = 0u64;
+    let mut total_speed_upload = 0u64;
+    let mut total_volume_download = 0u64;
+    let mut total_volume_upload = 0u64;
 
     // 获取所有网络接口的 IP 地址
     let network_interfaces = list_afinet_netifas().unwrap_or_else(|_| Vec::new());
@@ -333,17 +349,54 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
         let current_received = data.total_received();
         let current_transmitted = data.total_transmitted();
 
-        let (last_received, last_transmitted) =
-            last_stats.get(interface_name).copied().unwrap_or((0, 0));
+        let (last_received, last_transmitted, last_time) =
+            last_stats.get(interface_name).copied().unwrap_or((0, 0, 0.0));
 
-        let download_speed = current_received.saturating_sub(last_received);
-        let upload_speed = current_transmitted.saturating_sub(last_transmitted);
+        // 计算瞬时速度（字节差）
+        let instant_download_bytes = current_received.saturating_sub(last_received);
+        let instant_upload_bytes = current_transmitted.saturating_sub(last_transmitted);
+
+        // 计算实际时间间隔（秒）
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let time_elapsed = if last_time > 0.0 {
+            current_time - last_time
+        } else {
+            0.5 // 首次采样默认 500ms
+        };
 
         // Update last stats for next calculation
         last_stats.insert(
             interface_name.clone(),
-            (current_received, current_transmitted),
+            (current_received, current_transmitted, current_time),
         );
+
+        // 计算本次采样的瞬时速度（字节/秒）
+        let (current_download_speed, current_upload_speed) = if time_elapsed > 0.001 {
+            let dl_per_sec = (instant_download_bytes as f64 / time_elapsed) as u64;
+            let ul_per_sec = (instant_upload_bytes as f64 / time_elapsed) as u64;
+            (dl_per_sec, ul_per_sec)
+        } else {
+            (0, 0)
+        };
+
+        // 使用指数移动平均(EMA)平滑速度
+        // 新平均值 = 0.3 * 新值 + 0.7 * 旧平均值
+        // 这样对新数据反应快，同时保持平滑
+        let history = speed_history.entry(interface_name.clone()).or_insert_with(Vec::new);
+        let (download_speed, upload_speed) = if history.is_empty() {
+            history.push((current_download_speed, current_upload_speed));
+            (current_download_speed, current_upload_speed)
+        } else {
+            let (last_dl, last_ul) = history[0];
+            // EMA: alpha = 0.3, 对新数据权重较高
+            let smoothed_dl = ((current_download_speed as f64 * 0.3) + (last_dl as f64 * 0.7)) as u64;
+            let smoothed_ul = ((current_upload_speed as f64 * 0.3) + (last_ul as f64 * 0.7)) as u64;
+            history[0] = (smoothed_dl, smoothed_ul);
+            (smoothed_dl, smoothed_ul)
+        };
 
         // 获取 IP 地址
         let ip_address = ip_map.get(interface_name).cloned();
@@ -359,13 +412,17 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
             total_uploaded: current_transmitted,
         });
 
-        total_download += download_speed;
-        total_upload += upload_speed;
+        // 累加所有接口的当前速度（用于实时速度显示）
+        total_speed_download += download_speed;
+        total_speed_upload += upload_speed;
+        // 累加所有接口的总流量（用于底部统计显示）
+        total_volume_download += current_received;
+        total_volume_upload += current_transmitted;
     }
 
     // Debug output for network (commented out)
-    // println!("Total download speed: {} bytes/s", total_download);
-    // println!("Total upload speed: {} bytes/s", total_upload);
+    // println!("Total download speed: {} bytes/s", total_speed_download);
+    // println!("Total upload speed: {} bytes/s", total_speed_upload);
     // println!("Number of interfaces: {}", interfaces.len());
     // for iface in &interfaces {
     //     println!("Interface: {} -> {}", iface.name, iface.display_name);
@@ -373,10 +430,10 @@ async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, Str
 
     let network_info = NetworkInfo {
         interfaces,
-        total_download,
-        total_upload,
-        download_speed: total_download,
-        upload_speed: total_upload,
+        total_download: total_volume_download,   // 总下载流量
+        total_upload: total_volume_upload,       // 总上传流量
+        download_speed: total_speed_download,    // 当前下载速度
+        upload_speed: total_speed_upload,        // 当前上传速度
     };
 
     // Return system stats

@@ -118,7 +118,8 @@ const props = defineProps<{
 }>();
 
 // 常量定义：将样式配置提取出来，避免在 watch 中重复定义
-const MAX_DATA_POINTS = 30;
+// 提高数据点数量以显示更长时间的趋势（60点 × 500ms = 30秒）
+const MAX_DATA_POINTS = 60;
 
 const COMMON_DATASET_OPTS = {
   borderWidth: 2,
