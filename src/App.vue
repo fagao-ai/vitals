@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import Card from 'primevue/card';
 import Button from 'primevue/button';
 import CpuMonitor from './components/CpuMonitor.vue';
@@ -15,14 +16,13 @@ const lastUpdate = ref<Date>(new Date());
 const isPolling = ref(false);
 const isPinned = ref(false);
 const error = ref<string | null>(null);
-let pollingInterval: number | null = null;
+let unlisten: UnlistenFn | null = null;
 
-// 获取系统数据
+// 获取系统数据（用于初始化）
 async function fetchSystemStats() {
   try {
     error.value = null;
     const stats = await invoke<SystemStats>('get_system_stats');
-    // console.log('Received system stats:', stats); // 调试日志
     systemStats.value = stats;
     lastUpdate.value = new Date();
   } catch (err) {
@@ -31,33 +31,51 @@ async function fetchSystemStats() {
   }
 }
 
-// 开始/停止轮询
-function togglePolling() {
+// 开始/停止监控
+async function togglePolling() {
   if (isPolling.value) {
-    stopPolling();
+    await stopPolling();
   } else {
-    startPolling();
+    await startPolling();
   }
 }
 
-function startPolling() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
+async function startPolling() {
+  if (isPolling.value) return;
+
+  try {
+    // 先获取一次初始数据
+    await fetchSystemStats();
+
+    // 启动后端监控
+    await invoke('start_monitoring');
+
+    // 监听后端推送的 system-stats 事件
+    unlisten = await listen<SystemStats>('system-stats', (event) => {
+      systemStats.value = event.payload;
+      lastUpdate.value = new Date();
+    });
+
+    isPolling.value = true;
+  } catch (err) {
+    console.error('Failed to start monitoring:', err);
+    error.value = err as string;
   }
-
-  isPolling.value = true;
-  fetchSystemStats(); // 立即获取一次
-
-  // 每 500ms 更新一次，提高网速检测的实时性
-  pollingInterval = setInterval(fetchSystemStats, 500) as unknown as number;
 }
 
-function stopPolling() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-    pollingInterval = null;
+async function stopPolling() {
+  try {
+    await invoke('stop_monitoring');
+
+    if (unlisten) {
+      unlisten();
+      unlisten = null;
+    }
+
+    isPolling.value = false;
+  } catch (err) {
+    console.error('Failed to stop monitoring:', err);
   }
-  isPolling.value = false;
 }
 
 // 切换窗口置顶

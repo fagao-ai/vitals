@@ -1,9 +1,11 @@
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use std::process::Command;
+use std::time::Duration;
 use sysinfo::{Networks, System};
-use tauri::{Manager, State, WebviewWindow};
+use tauri::{Manager, State, WebviewWindow, AppHandle, Emitter};
 use local_ip_address::list_afinet_netifas;
+use tokio::time::interval;
 
 // System data structures
 #[derive(Serialize, Clone)]
@@ -74,6 +76,8 @@ pub struct AppState {
     last_network_stats: Arc<Mutex<std::collections::HashMap<String, (u64, u64, f64)>>>,
     // 网速平滑值（用于指数移动平均）
     network_speed_history: Arc<Mutex<std::collections::HashMap<String, Vec<(u64, u64)>>>>,
+    // 监控是否正在运行
+    is_monitoring: Arc<Mutex<bool>>,
 }
 
 // 判断是否是物理网络接口（过滤掉虚拟网卡）
@@ -266,6 +270,7 @@ impl Default for AppState {
             networks: Arc::new(Mutex::new(networks)),
             last_network_stats: Arc::new(Mutex::new(last_network_stats)),
             network_speed_history: Arc::new(Mutex::new(network_speed_history)),
+            is_monitoring: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -482,6 +487,215 @@ async fn close_app() -> Result<(), String> {
     std::process::exit(0);
 }
 
+// 提取获取系统统计数据的逻辑为独立函数
+fn collect_system_stats(state: &AppState) -> Result<SystemStats, String> {
+    let mut system = state.system.lock().map_err(|e| e.to_string())?;
+    let mut networks = state.networks.lock().map_err(|e| e.to_string())?;
+    let mut last_stats = state.last_network_stats.lock().map_err(|e| e.to_string())?;
+    let mut speed_history = state.network_speed_history.lock().map_err(|e| e.to_string())?;
+
+    // Refresh system information
+    system.refresh_all();
+    networks.refresh();
+
+    // CPU Information
+    let cpu_usage = system.global_cpu_usage();
+    let cpu_count = system.cpus().len();
+    let core_usage: Vec<f32> = system.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
+
+    let cpu_info = CpuInfo {
+        name: "CPU".to_string(),
+        cores: cpu_count,
+        usage: cpu_usage,
+        core_usage,
+        frequency: system
+            .cpus()
+            .first()
+            .map(|cpu| cpu.frequency() as f64 / 1000.0)
+            .unwrap_or(0.0),
+        temperature: None,
+    };
+
+    // Memory Information
+    let total_memory = system.total_memory();
+    let used_memory = system.used_memory();
+    let available_memory = total_memory.saturating_sub(used_memory);
+
+    let memory_info = MemoryInfo {
+        total: total_memory,
+        used: used_memory,
+        available: available_memory,
+        usage_percent: if total_memory > 0 {
+            (used_memory as f32 / total_memory as f32) * 100.0
+        } else {
+            0.0
+        },
+        swap_total: system.total_swap(),
+        swap_used: system.used_swap(),
+    };
+
+    // Network Information
+    let mut interfaces = Vec::new();
+    let mut total_speed_download = 0u64;
+    let mut total_speed_upload = 0u64;
+    let mut total_volume_download = 0u64;
+    let mut total_volume_upload = 0u64;
+
+    let network_interfaces = list_afinet_netifas().unwrap_or_else(|_| Vec::new());
+    let mut ip_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for (name, ip) in network_interfaces {
+        if ip.is_ipv4() && !ip.is_loopback() {
+            let ip_str = ip.to_string();
+            if !ip_str.starts_with("169.254.") && !ip_str.starts_with("fe80") {
+                ip_map.insert(name.clone(), ip_str);
+            }
+        }
+    }
+
+    for (interface_name, data) in networks.iter() {
+        if !is_physical_interface(interface_name) {
+            continue;
+        }
+
+        let current_received = data.total_received();
+        let current_transmitted = data.total_transmitted();
+
+        let (last_received, last_transmitted, last_time) =
+            last_stats.get(interface_name).copied().unwrap_or((0, 0, 0.0));
+
+        let instant_download_bytes = current_received.saturating_sub(last_received);
+        let instant_upload_bytes = current_transmitted.saturating_sub(last_transmitted);
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        let time_elapsed = if last_time > 0.0 {
+            current_time - last_time
+        } else {
+            0.5
+        };
+
+        last_stats.insert(
+            interface_name.clone(),
+            (current_received, current_transmitted, current_time),
+        );
+
+        let (current_download_speed, current_upload_speed) = if time_elapsed > 0.001 {
+            let dl_per_sec = (instant_download_bytes as f64 / time_elapsed) as u64;
+            let ul_per_sec = (instant_upload_bytes as f64 / time_elapsed) as u64;
+            (dl_per_sec, ul_per_sec)
+        } else {
+            (0, 0)
+        };
+
+        let history = speed_history.entry(interface_name.clone()).or_insert_with(Vec::new);
+        let (download_speed, upload_speed) = if history.is_empty() {
+            history.push((current_download_speed, current_upload_speed));
+            (current_download_speed, current_upload_speed)
+        } else {
+            let (last_dl, last_ul) = history[0];
+            let smoothed_dl = ((current_download_speed as f64 * 0.3) + (last_dl as f64 * 0.7)) as u64;
+            let smoothed_ul = ((current_upload_speed as f64 * 0.3) + (last_ul as f64 * 0.7)) as u64;
+            history[0] = (smoothed_dl, smoothed_ul);
+            (smoothed_dl, smoothed_ul)
+        };
+
+        let ip_address = ip_map.get(interface_name).cloned();
+
+        interfaces.push(NetworkInterface {
+            name: interface_name.clone(),
+            display_name: get_display_name(interface_name),
+            ip_address,
+            is_up: current_received > 0 || current_transmitted > 0,
+            download_speed,
+            upload_speed,
+            total_downloaded: current_received,
+            total_uploaded: current_transmitted,
+        });
+
+        total_speed_download += download_speed;
+        total_speed_upload += upload_speed;
+        total_volume_download += current_received;
+        total_volume_upload += current_transmitted;
+    }
+
+    let network_info = NetworkInfo {
+        interfaces,
+        total_download: total_volume_download,
+        total_upload: total_volume_upload,
+        download_speed: total_speed_download,
+        upload_speed: total_speed_upload,
+    };
+
+    Ok(SystemStats {
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        cpu: cpu_info,
+        memory: memory_info,
+        network: network_info,
+    })
+}
+
+// 启动实时监控
+#[tauri::command]
+async fn start_monitoring(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let mut is_monitoring = state.is_monitoring.lock().map_err(|e| e.to_string())?;
+    if *is_monitoring {
+        return Ok(());
+    }
+    *is_monitoring = true;
+    drop(is_monitoring);
+
+    let system = state.system.clone();
+    let networks = state.networks.clone();
+    let last_stats = state.last_network_stats.clone();
+    let speed_history = state.network_speed_history.clone();
+    let is_monitoring_flag = state.is_monitoring.clone();
+
+    tokio::spawn(async move {
+        let mut timer = interval(Duration::from_millis(500));
+        loop {
+            timer.tick().await;
+
+            // 检查是否还在监控
+            {
+                let monitoring = is_monitoring_flag.lock().unwrap();
+                if !*monitoring {
+                    break;
+                }
+            }
+
+            // 构造临时的 AppState 来收集数据
+            let temp_state = AppState {
+                system: system.clone(),
+                networks: networks.clone(),
+                last_network_stats: last_stats.clone(),
+                network_speed_history: speed_history.clone(),
+                is_monitoring: is_monitoring_flag.clone(),
+            };
+
+            if let Ok(stats) = collect_system_stats(&temp_state) {
+                // 通过 event 推送给前端
+                let _ = app.emit("system-stats", stats);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+// 停止实时监控
+#[tauri::command]
+async fn stop_monitoring(state: State<'_, AppState>) -> Result<(), String> {
+    let mut is_monitoring = state.is_monitoring.lock().map_err(|e| e.to_string())?;
+    *is_monitoring = false;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -489,6 +703,8 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             get_system_stats,
+            start_monitoring,
+            stop_monitoring,
             greet,
             set_pin_on_top,
             close_app
